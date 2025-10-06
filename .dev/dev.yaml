@@ -5,7 +5,12 @@ services:
 
   kafbat-ui:
     container_name: kafbat-ui
-    image: ghcr.io/kafbat/kafka-ui:latest
+    # image: ghcr.io/kafbat/kafka-ui:latest
+    build:
+      context: ../api
+      dockerfile: Dockerfile
+      args:
+        JAR_FILE: build/libs/api-0.0.1-SNAPSHOT.jar
     ports:
       - 8080:8080
     depends_on:
