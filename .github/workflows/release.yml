@@ -81,7 +81,7 @@ jobs:
     needs: release
     steps:
       - name: Repository Dispatch
-        uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # infered from @v3
+        uses: peter-evans/repository-dispatch@5fc4efd1a4797ddb68ffd0714a238564e4cc0e6f # infered from @v3
         with:
           token: ${{ secrets.CHARTS_ACTIONS_TOKEN }}
           repository: kafbat/helm-charts
