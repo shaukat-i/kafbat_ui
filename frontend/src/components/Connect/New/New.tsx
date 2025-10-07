@@ -19,7 +19,7 @@ import Heading from 'components/common/heading/Heading.styled';
 import { useConnects, useCreateConnector } from 'lib/hooks/api/kafkaConnect';
 import { Connect } from 'generated-sources';
 import ResourcePageHeading from 'components/common/ResourcePageHeading/ResourcePageHeading';
-
+import Papa from 'papaparse';
 import * as S from './New.styled';
 
 const validationSchema = yup.object().shape({
@@ -39,6 +39,8 @@ const New: React.FC = () => {
 
   const { data: connects = [] } = useConnects(clusterName);
   const mutation = useCreateConnector(clusterName);
+
+  const [isBulkLoading, setIsBulkLoading] = React.useState(false);
 
   const methods = useForm<FormValues>({
     mode: 'all',
@@ -83,7 +85,7 @@ const New: React.FC = () => {
         );
       }
     } catch (e) {
-      // do nothing
+      // silently fail
     }
   };
 
@@ -91,6 +93,68 @@ const New: React.FC = () => {
     value: connectName,
     label: connectName,
   }));
+
+  const handleBulkImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsBulkLoading(true);
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async (results) => {
+        const validConnectors: { name: string; config: object }[] = [];
+
+        results.data.forEach((row: any, index: number) => {
+          const { name, config } = row;
+
+          if (!name || !config) {
+            console.warn(`Row ${index + 1} skipped: missing name/config`);
+            return;
+          }
+
+          try {
+            const parsedConfig = JSON.parse(config);
+            validConnectors.push({ name, config: parsedConfig });
+          } catch {
+            console.warn(`Row ${index + 1} skipped: invalid JSON config`);
+          }
+        });
+
+        if (validConnectors.length === 0) {
+          console.warn('No valid connectors found in CSV.');
+          setIsBulkLoading(false);
+          return;
+        }
+
+        for (const connector of validConnectors) {
+          try {
+            await mutation.createResource({
+              connectName: getValues('connectName'),
+              newConnector: {
+                name: connector.name,
+                config: connector.config,
+              },
+            });
+          } catch (err) {
+            console.error(`Failed to create connector "${connector.name}"`, err);
+          }
+        }
+
+        setIsBulkLoading(false);
+
+        // ✅ Navigate back after all connectors are created
+        navigate(clusterConnectorsPath(clusterName));
+      },
+      error: (err) => {
+        console.error('CSV parse error:', err);
+        setIsBulkLoading(false);
+      },
+    });
+
+    e.target.value = ''; // reset file input
+  };
 
   return (
     <FormProvider {...methods}>
@@ -113,7 +177,7 @@ const New: React.FC = () => {
               <Select
                 selectSize="M"
                 name={name}
-                disabled={isSubmitting}
+                disabled={isSubmitting || isBulkLoading}
                 onChange={onChange}
                 value={connectOptions[0]?.value}
                 minWidth="100%"
@@ -134,7 +198,7 @@ const New: React.FC = () => {
             name="name"
             autoFocus
             autoComplete="off"
-            disabled={isSubmitting}
+            disabled={isSubmitting || isBulkLoading}
           />
           <FormError>
             <ErrorMessage errors={errors} name="name" />
@@ -147,21 +211,47 @@ const New: React.FC = () => {
             control={control}
             name="config"
             render={({ field }) => (
-              <Editor {...field} readOnly={isSubmitting} ref={null} />
+              <Editor {...field} readOnly={isSubmitting || isBulkLoading} ref={null} />
             )}
           />
           <FormError>
             <ErrorMessage errors={errors} name="config" />
           </FormError>
         </div>
-        <Button
-          buttonSize="M"
-          buttonType="primary"
-          type="submit"
-          disabled={!isValid || isSubmitting || !isDirty}
-        >
-          Submit
-        </Button>
+
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+          <Button
+            buttonSize="M"
+            buttonType="primary"
+            type="submit"
+            disabled={!isValid || isSubmitting || !isDirty || isBulkLoading}
+          >
+            {isSubmitting ? 'Submitting...' : 'Submit'}
+          </Button>
+
+          <input
+            id="csvInput"
+            type="file"
+            accept=".csv"
+            style={{ display: 'none' }}
+            onChange={handleBulkImport}
+          />
+          <Button
+            buttonSize="M"
+            buttonType="secondary"
+            type="button"
+            onClick={() => document.getElementById('csvInput')?.click()}
+            disabled={isBulkLoading}
+          >
+            {isBulkLoading ? 'Importing...' : 'Bulk Import CSV'}
+          </Button>
+
+          {isBulkLoading && (
+            <span style={{ color: '#666', fontSize: '0.9rem' }}>
+              ⏳ Importing connectors, please wait...
+            </span>
+          )}
+        </div>
       </S.NewConnectFormStyled>
     </FormProvider>
   );

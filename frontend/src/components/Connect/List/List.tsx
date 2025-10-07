@@ -9,6 +9,8 @@ import { useSearchParams } from 'react-router-dom';
 import { useQueryPersister } from 'components/common/NewTable/ColumnFilter';
 import { useLocalStoragePersister } from 'components/common/NewTable/ColumnResizer/lib';
 import BreakableTextCell from 'components/common/NewTable/BreakableTextCell';
+import ResourcePageHeading from 'components/common/ResourcePageHeading/ResourcePageHeading';
+import { Button } from 'components/common/Button/Button';
 
 import ActionsCell from './ActionsCell';
 import TopicsCell from './TopicsCell';
@@ -88,17 +90,62 @@ const List: React.FC = () => {
   const filterPersister = useQueryPersister(kafkaConnectColumns);
   const columnSizingPersister = useLocalStoragePersister('KafkaConnect');
 
+  const handleExportBulk = async () => {
+  if (!connectors?.length) {
+    console.warn('No connectors found to export.');
+    return;
+  }
+
+  const rows: string[] = ['name,config'];
+
+  for (const connector of connectors) {
+    try {
+      const res = await fetch(
+        `/api/clusters/${clusterName}/connects/${connector.connect}/connectors/${connector.name}/config`
+      );
+      const config = await res.json();
+
+      // Escape double quotes in JSON config
+      const configString = JSON.stringify(config).replace(/"/g, '""');
+      const csvRow = `${connector.name},"${configString}"`;
+      rows.push(csvRow);
+    } catch (e) {
+      console.error(`Failed to fetch config for ${connector.name}`, e);
+    }
+  }
+
+  const csvContent = rows.join('\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'connectors.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+};
+
+
   return (
-    <Table
-      data={connectors || []}
-      columns={kafkaConnectColumns}
-      enableSorting
-      enableColumnResizing
-      columnSizingPersister={columnSizingPersister}
-      emptyMessage="No connectors found"
-      setRowId={(originalRow) => `${originalRow.name}-${originalRow.connect}`}
-      filterPersister={filterPersister}
-    />
+    <>
+      <ResourcePageHeading text="Connectors">
+        <Button buttonType="secondary" buttonSize="M" onClick={handleExportBulk}>
+          Export Bulk
+        </Button>
+      </ResourcePageHeading>
+
+      <Table
+        data={connectors || []}
+        columns={kafkaConnectColumns}
+        enableSorting
+        enableColumnResizing
+        columnSizingPersister={columnSizingPersister}
+        emptyMessage="No connectors found"
+        setRowId={(originalRow) => `${originalRow.name}-${originalRow.connect}`}
+        filterPersister={filterPersister}
+      />
+    </>
   );
 };
 
